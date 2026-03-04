@@ -687,12 +687,27 @@ async function doAuth(){
 
 async function startApp(){
   showLd('Hesap yükleniyor...');
-  // Profil
+  // Profil yükle
   const {data:prof}=await sb.from('profiles').select('*').eq('id',U.id).single();
-  PROF=prof||{id:U.id,full_name:'',role:'viewer',phone:'',frozen:false};
-  if(prof&&prof.full_name&&prof.full_name.includes('@'))PROF.full_name='';
-  if(!prof)await sb.from('profiles').upsert(PROF);
-  // DONDURULMUŞ KULLANICI KONTROLÜ
+  if(prof){
+    PROF=prof;
+    // full_name e-posta gibi görünüyorsa veya boşsa metadata'dan al
+    const metaName=U.user_metadata?.full_name||'';
+    const dbName=prof.full_name||'';
+    if(!dbName || dbName.includes('@') || dbName===U.email){
+      // metadata'da temiz isim varsa onu kullan
+      const cleanMeta=metaName.includes('@')?'':metaName;
+      PROF.full_name=cleanMeta;
+      if(cleanMeta) await sb.from('profiles').update({full_name:cleanMeta}).eq('id',U.id);
+    }
+  } else {
+    // Profil hiç yoksa oluştur
+    const metaName=U.user_metadata?.full_name||'';
+    const cleanName=metaName.includes('@')?'':metaName;
+    PROF={id:U.id,full_name:cleanName,role:'viewer',phone:'',frozen:false};
+    await sb.from('profiles').upsert(PROF);
+  }
+  // Dondurulmuş kontrolü
   if(PROF.frozen===true){
     await sb.auth.signOut();
     U=null;PROF=null;COMP=null;
@@ -701,11 +716,11 @@ async function startApp(){
     aErr('❄️ Hesabınız dondurulmuştur. Yöneticinizle iletişime geçin.');
     return;
   }
-  // Firma
+  // Firma yükle
   const {data:comp}=await sb.from('company').select('*').eq('user_id',U.id).single();
   COMP=comp||{user_id:U.id,name:'İşletmem'};
   if(!comp)await sb.from('company').upsert(COMP);
-  // Admin görünür yap
+  // Admin menüsü
   if(isAdmin())document.getElementById('kulMnu').style.display='flex';
   hideLd();
   updProfUI();
@@ -1110,13 +1125,21 @@ async function delSupp(id,name){
 async function fillKulUI(){
   const el=document.getElementById('kulUI');
   el.innerHTML='<div style="color:var(--mt);font-size:.82rem;padding:12px">Yükleniyor...</div>';
-  // Sadece kendi firmasındaki kullanıcıları getir
   const firmaAdi=COMP?.name||'';
-  const {data:firmaUsers}=await sb.from('company').select('user_id').ilike('name',firmaAdi);
-  if(!firmaUsers?.length){el.innerHTML='<div style="color:var(--mt);font-size:.82rem;text-align:center;padding:16px">Kullanıcı bulunamadı</div>';return}
+  // Aynı firma adına sahip tüm company kayıtlarını çek
+  const {data:firmaUsers,error:fErr}=await sb.from('company').select('user_id,name').ilike('name',firmaAdi);
+  if(fErr||!firmaUsers?.length){el.innerHTML=`<div style="color:var(--mt);font-size:.82rem;text-align:center;padding:16px">Kullanıcı listesi alınamadı.<br><small style="color:var(--rd)">RLS politikasını Supabase'de güncellemeniz gerekiyor.</small></div>`;return}
   const userIds=firmaUsers.map(x=>x.user_id);
-  const {data}=await sb.from('profiles').select('*').in('id',userIds).order('created_at');
-  if(!data?.length){el.innerHTML='<div style="color:var(--mt);font-size:.82rem;text-align:center;padding:16px">Kullanıcı bulunamadı</div>';return}
+  // profiles tablosundan bu kullanıcıları çek
+  const {data,error:pErr}=await sb.from('profiles').select('id,full_name,phone,role,frozen').in('id',userIds).order('created_at');
+  if(pErr||!data?.length){
+    // RLS engelliyorsa — sadece kendi profilini göster
+    el.innerHTML=`<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:14px;font-size:.82rem;color:#fca5a5;line-height:1.6">
+      ⚠️ Kullanıcı listesi görüntülenemiyor.<br>
+      Supabase → SQL Editor'da <b>supabase-fix-rls.sql</b> dosyasını çalıştırın.
+    </div>`;
+    return;
+  }
   el.innerHTML=`<div style="font-size:.72rem;color:var(--mt);margin-bottom:12px;display:flex;justify-content:space-between;padding:0 2px">
     <span>🏢 ${firmaAdi}</span>
     <span>${data.length} kullanıcı</span>
@@ -1171,12 +1194,17 @@ async function toggleFreeze(uid,isFrozen){
 }
 
 async function delUser(uid,name){
-  if(!confirm(`"${name}" silinsin mi? Bu işlem geri alınamaz!`))return;
+  if(!confirm(`"${name}" silinsin mi?\nBu işlem geri alınamaz!`))return;
   showLd('Siliniyor...');
-  await sb.from('profiles').delete().eq('id',uid);
-  await sb.from('company').delete().eq('user_id',uid);
+  const {error:e1}=await sb.from('profiles').delete().eq('id',uid);
+  const {error:e2}=await sb.from('company').delete().eq('user_id',uid);
   hideLd();
-  showToast('🗑','Kullanıcı silindi');
+  if(e1||e2){
+    showToast('❌','Silme başarısız! RLS politikası engelledi.');
+    console.error('del profile:',e1,'del company:',e2);
+  } else {
+    showToast('🗑',`"${name}" silindi`);
+  }
   fillKulUI();
 }
 
