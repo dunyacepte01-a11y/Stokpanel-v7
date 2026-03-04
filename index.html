@@ -636,16 +636,28 @@ async function doAuth(){
     if(isK){
       const ad=document.getElementById('rAd').value.trim();
       const soyad=document.getElementById('rSoyad').value.trim();
-      const firma=document.getElementById('rFirma').value.trim()||'İşletmem';
-      const fullName=`${ad} ${soyad}`.trim()||email.split('@')[0];
+      const firma=document.getElementById('rFirma').value.trim();
+      if(!firma){aErr('Firma adı zorunludur!');btn.disabled=false;btn.textContent='Kayıt Ol';return}
+      const fullName=`${ad} ${soyad}`.trim();
+      if(!fullName){aErr('Ad ve soyad zorunludur!');btn.disabled=false;btn.textContent='Kayıt Ol';return}
+      // Aynı firma adıyla daha önce kayıt var mı?
+      const {data:existComp}=await sb.from('company').select('user_id,name').ilike('name',firma).limit(1);
+      const firmaVar=existComp&&existComp.length>0;
+      // İlk kayıt = admin, sonrakiler = viewer
+      const rol=firmaVar?'viewer':'admin';
       const {data,error}=await sb.auth.signUp({email,password:pass,options:{data:{full_name:fullName}}});
       if(error)throw error;
       if(data.user){
-        await sb.from('profiles').upsert({id:data.user.id,full_name:fullName,role:'admin',phone:''});
-        await sb.from('company').upsert({user_id:data.user.id,name:firma});
-        await sb.from('shelves').insert({user_id:data.user.id,warehouse:'Ana Depo',name:'Genel Raf',description:'Varsayılan raf'});
+        await sb.from('profiles').upsert({id:data.user.id,full_name:fullName,role:rol,phone:''});
+        if(firmaVar){
+          await sb.from('company').upsert({user_id:data.user.id,name:existComp[0].name});
+        }else{
+          await sb.from('company').upsert({user_id:data.user.id,name:firma});
+          await sb.from('shelves').insert({user_id:data.user.id,warehouse:'Ana Depo',name:'Genel Raf',description:'Varsayılan raf'});
+        }
       }
-      aSuc('✅ Kayıt başarılı! Şimdi giriş yapabilirsiniz.');
+      const rolMsg=firmaVar?'Hesabınız Viewer olarak açıldı. Admin rolünüzü yükseltebilir.':'Yönetici olarak kayıt başarılı!';
+      aSuc('✅ '+rolMsg+' Giriş yapabilirsiniz.');
       swTab('giris');
     }else{
       const {data,error}=await sb.auth.signInWithPassword({email,password:pass});
@@ -665,9 +677,18 @@ async function startApp(){
   showLd('Hesap yükleniyor...');
   // Profil
   const {data:prof}=await sb.from('profiles').select('*').eq('id',U.id).single();
-  PROF=prof||{id:U.id,full_name:'',role:'admin',phone:''};
+  PROF=prof||{id:U.id,full_name:'',role:'viewer',phone:'',frozen:false};
   if(prof&&prof.full_name&&prof.full_name.includes('@'))PROF.full_name='';
   if(!prof)await sb.from('profiles').upsert(PROF);
+  // DONDURULMUŞ KULLANICI KONTROLÜ
+  if(PROF.frozen===true){
+    await sb.auth.signOut();
+    U=null;PROF=null;COMP=null;
+    hideLd();
+    document.getElementById('auth').style.display='block';
+    aErr('❄️ Hesabınız dondurulmuştur. Yöneticinizle iletişime geçin.');
+    return;
+  }
   // Firma
   const {data:comp}=await sb.from('company').select('*').eq('user_id',U.id).single();
   COMP=comp||{user_id:U.id,name:'İşletmem'};
@@ -1079,25 +1100,62 @@ async function fillKulUI(){
   el.innerHTML='<div style="color:var(--mt);font-size:.82rem;padding:12px">Yükleniyor...</div>';
   const {data}=await sb.from('profiles').select('*').order('created_at');
   if(!data?.length){el.innerHTML='<div style="color:var(--mt);font-size:.82rem;text-align:center;padding:16px">Kayıtlı kullanıcı bulunamadı</div>';return}
-  el.innerHTML=data.map(u=>`
-    <div style="background:var(--s2);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:10px;display:flex;align-items:center;gap:12px">
-      <div style="width:42px;height:42px;border-radius:11px;background:var(--grad);display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:.9rem;flex-shrink:0">${(u.full_name||'?')[0].toUpperCase()}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:.87rem;font-weight:700">${u.full_name||'İsimsiz'}</div>
-        <div style="font-size:.7rem;color:var(--mt);margin-top:2px">${u.phone||'Telefon yok'}</div>
+  el.innerHTML=data.map(u=>{
+    const isMe=u.id===U.id;
+    const isAdm=u.role==='admin';
+    const frozen=u.frozen===true;
+    const avBg=frozen?'background:#374151':'background:var(--grad)';
+    return`<div style="background:var(--s2);border:1px solid ${frozen?'rgba(239,68,68,.3)':'var(--bd)'};border-radius:12px;padding:14px;margin-bottom:10px;opacity:${frozen?'.6':'1'}">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:${isMe||isAdm?'0':'12px'}">
+        <div style="width:42px;height:42px;border-radius:11px;${avBg};display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:.9rem;flex-shrink:0">
+          ${frozen?'🔒':(u.full_name||'?')[0].toUpperCase()}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.87rem;font-weight:700;display:flex;align-items:center;gap:6px">
+            ${u.full_name||'İsimsiz'}
+            ${frozen?'<span style="background:rgba(239,68,68,.15);color:#f87171;font-size:.62rem;font-weight:800;padding:2px 8px;border-radius:6px;text-transform:uppercase">DONDURULDU</span>':''}
+            ${isMe?'<span style="background:rgba(99,102,241,.15);color:var(--p2);font-size:.62rem;font-weight:800;padding:2px 8px;border-radius:6px">SEN</span>':''}
+          </div>
+          <div style="font-size:.7rem;color:var(--mt);margin-top:2px">${u.phone||'Telefon yok'}</div>
+        </div>
+        ${!isMe&&!isAdm?`<select style="background:var(--s3);border:1px solid var(--bd);border-radius:8px;padding:6px 8px;color:var(--tx);font-family:'Outfit',sans-serif;font-size:.75rem;font-weight:700;cursor:pointer" onchange="updRole('${u.id}',this.value)" ${frozen?'disabled':''}>
+          <option value="manager" ${u.role==='manager'?'selected':''}>🔧 Manager</option>
+          <option value="staff" ${u.role==='staff'?'selected':''}>👷 Staff</option>
+          <option value="viewer" ${u.role==='viewer'?'selected':''}>👁 Viewer</option>
+        </select>`:''}
       </div>
-      <select style="background:var(--s3);border:1px solid var(--bd);border-radius:8px;padding:6px 10px;color:var(--tx);font-family:'Outfit',sans-serif;font-size:.78rem;font-weight:700;cursor:pointer" onchange="updRole('${u.id}',this.value)">
-        <option value="admin" ${u.role==='admin'?'selected':''}>👑 Admin</option>
-        <option value="manager" ${u.role==='manager'?'selected':''}>🔧 Manager</option>
-        <option value="staff" ${u.role==='staff'?'selected':''}>👷 Staff</option>
-        <option value="viewer" ${u.role==='viewer'?'selected':''}>👁 Viewer</option>
-      </select>
-    </div>`).join('');
+      ${!isMe&&!isAdm?`<div style="display:flex;gap:8px;margin-top:10px">
+        <button onclick="toggleFreeze('${u.id}',${frozen})" style="flex:1;padding:9px;border-radius:9px;border:1px solid ${frozen?'rgba(16,185,129,.3)':'rgba(245,158,11,.3)'};background:${frozen?'rgba(16,185,129,.1)':'rgba(245,158,11,.1)'};color:${frozen?'#34d399':'#fbbf24'};font-family:'Outfit',sans-serif;font-weight:700;font-size:.78rem;cursor:pointer">
+          ${frozen?'🔓 Aktif Et':'🔒 Dondur'}
+        </button>
+        <button onclick="delUser('${u.id}','${(u.full_name||'bu kullanıcıyı').replace(/'/g,"\'")}'')" style="flex:1;padding:9px;border-radius:9px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.1);color:#f87171;font-family:'Outfit',sans-serif;font-weight:700;font-size:.78rem;cursor:pointer">
+          🗑 Sil
+        </button>
+      </div>`:isAdm&&!isMe?`<div style="margin-top:8px;font-size:.72rem;color:var(--mt);text-align:center">👑 Admin silinemez veya dondurulamaz</div>`:''}
+    </div>`;
+  }).join('');
 }
 
 async function updRole(uid,role){
   await sb.from('profiles').update({role}).eq('id',uid);
   showToast('✅','Rol güncellendi!');
+  fillKulUI();
+}
+
+async function toggleFreeze(uid,isFrozen){
+  const yeni=!isFrozen;
+  await sb.from('profiles').update({frozen:yeni}).eq('id',uid);
+  showToast(yeni?'🔒':'🔓',yeni?'Kullanıcı donduruldu!':'Kullanıcı aktif edildi!');
+  fillKulUI();
+}
+
+async function delUser(uid,name){
+  if(!confirm(`"${name}" silinsin mi? Bu işlem geri alınamaz!`))return;
+  showLd('Siliniyor...');
+  await sb.from('profiles').delete().eq('id',uid);
+  hideLd();
+  showToast('🗑',`Kullanıcı silindi`);
+  fillKulUI();
 }
 
 // ══════════════════════════════════════════════════════
