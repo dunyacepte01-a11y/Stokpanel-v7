@@ -419,7 +419,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--tx);
       <span style="color:var(--mt)">›</span>
     </div>
   </div>
-  <div style="text-align:center;padding:20px;color:var(--mt);font-size:.73rem">StokPanel v3.0 · Türkiye 🇹🇷</div>
+  <div style="text-align:center;padding:20px;color:var(--mt);font-size:.73rem">StokPanel v7.0 · Türkiye 🇹🇷</div>
 </div>
 
 </div><!-- /sa -->
@@ -590,8 +590,8 @@ const gs=id=>supps.find(x=>x.id===id);
 const fdt=s=>{try{const[d,t]=(s||'').split(' ');return d.split('-').reverse().join('.')+' '+(t||'')}catch{return s||''}};
 const stOf=p=>{const r=p.stok/p.min;if(p.stok<=0)return{l:'Tükendi',c:'crit-st'};if(r<0.4)return{l:'Kritik',c:'crit-st'};if(r<=1)return{l:'Düşük',c:'low'};return{l:'Normal',c:'ok'}};
 const bcOf=p=>{const r=p.stok/p.min;return r<0.4?'#ef4444':r<=1?'#f59e0b':'#10b981'};
-const isAdmin=()=>PROF?.role==='admin';
-const isMgr=()=>['admin','manager'].includes(PROF?.role);
+const isAdmin=()=>PROF?.rolee==='admin';
+const isMgr=()=>['admin','manager'].includes(PROF?.rolee);
 function showLd(t='Yükleniyor...'){document.getElementById('ld').style.display='flex';document.getElementById('ldtxt').textContent=t}
 function hideLd(){document.getElementById('ld').style.display='none'}
 let toastT;
@@ -653,17 +653,17 @@ async function doAuth(){
         // Mevcut firmaya katılıyor — viewer olarak başlar
         rol='viewer';
       }
-      const {data,error}=await sb.auth.signUp({email,password:pass,options:{data:{"Ad Soyad":fullName}}});
+      const {data,error}=await sb.auth.signUp({email,password:pass,options:{data:{full_name:fullName}}});
       if(error)throw error;
       if(data.user){
-        await sb.from('profiles').upsert({"İD":data.user.id,"Ad Soyad":fullName,rol:rol,telefon:"","dondurulmuş":false});
+        await sb.from('profiles').upsert({id:data.user.id,full_name:fullName,rol:rol,phone:"",frozen:false});
         if(firmaVar){
           // Mevcut firmaya bağlan
-          await sb.from('company').upsert({"Kullanıcı kim":data.user.id,isim:existComp[0].isim});
+          await sb.from('company').upsert({user_id:data.user.id,isim:existComp[0].name});
         }else{
           // Yeni firma kur
-          await sb.from('company').upsert({"Kullanıcı kim":data.user.id,isim:firma});
-          await sb.from('shelves').insert({"Kullanıcı kim":data.user.id,depo:"Ana Depo",isim:"Genel Raf","Tanım":"Varsayılan raf"});
+          await sb.from('company').upsert({user_id:data.user.id,isim:firma});
+          await sb.from('shelves').insert({user_id:data.user.id,depo:"Ana Depo",isim:"Genel Raf","Tanım":"Varsayılan raf"});
         }
       }
       const rolMsg=firmaVar
@@ -688,9 +688,9 @@ async function doAuth(){
 async function startApp(){
   showLd('Hesap yükleniyor...');
   // Profil yükle
-  const {data:prof}=await sb.from('profiles').select('*').eq("İD",U.id).single();
+  const {data:prof}=await sb.from('profiles').select('*').eq(id,U.id).single();
   if(prof){
-    PROF={...prof,full_name:prof["Ad Soyad"]||"",phone:prof.telefon||"",role:prof.rol||"viewer",frozen:prof["dondurulmuş"]===true};
+    PROF={...prof,full_name:prof[full_name]||"",phone:prof.phone||"",role:prof.rolee||"viewer",frozen:prof[frozen]===true};
     // full_name e-posta gibi görünüyorsa veya boşsa metadata'dan al
     const metaName=U.user_metadata?.full_name||'';
     const dbName=prof.full_name||'';
@@ -698,17 +698,17 @@ async function startApp(){
       // metadata'da temiz isim varsa onu kullan
       const cleanMeta=metaName.includes('@')?'':metaName;
       PROF.full_name=cleanMeta;
-      if(cleanMeta) await sb.from('profiles').update({"Ad Soyad":cleanMeta}).eq("İD",U.id);
+      if(cleanMeta) await sb.from('profiles').update({full_name:cleanMeta}).eq(id,U.id);
     }
   } else {
     // Profil hiç yoksa oluştur
     const metaName=U.user_metadata?.full_name||'';
     const cleanName=metaName.includes('@')?'':metaName;
-    PROF={id:U.id,"Ad Soyad":cleanName,rol:"viewer",phone:'',"dondurulmuş":false};
-    await sb.from('profiles').upsert({"İD":PROF.id,"Ad Soyad":PROF.full_name,rol:PROF.role,telefon:PROF.phone||"","dondurulmuş":false});
+    PROF={id:U.id,full_name:cleanName,rol:"viewer",phone:'',frozen:false};
+    await sb.from('profiles').upsert({id:PROF.id,full_name:PROF.full_name,rol:PROF.rolee,phone:PROF.phone||"",frozen:false});
   }
   // Dondurulmuş kontrolü
-  if(PROF["dondurulmuş"]===true || PROF.frozen===true){
+  if(PROF[frozen]===true || PROF.frozen===true){
     await sb.auth.signOut();
     U=null;PROF=null;COMP=null;
     hideLd();
@@ -717,8 +717,8 @@ async function startApp(){
     return;
   }
   // Firma yükle
-  const {data:comp}=await sb.from('company').select('*').eq("Kullanıcı kim",U.id).single();
-  COMP=comp?{...comp,name:comp.isim||"İşletmem",id:comp["İD"]}:{"Kullanıcı kim":U.id,isim:"İşletmem"};
+  const {data:comp}=await sb.from('company').select('*').eq(user_id,U.id).single();
+  COMP=comp?{...comp,name:comp.name||"İşletmem",id:comp[id]}:{user_id:U.id,isim:"İşletmem"};
   if(!comp)await sb.from('company').upsert(COMP);
   // Admin menüsü
   if(isAdmin())document.getElementById('kulMnu').style.display='flex';
@@ -758,9 +758,9 @@ async function renderAll(){
       sb.from('movements').select('*').order('created_at',{ascending:false}).limit(100),
       sb.from('shelves').select("*").order("depo",{ascending:true})
     ]);
-    if(r1.data)supps=r1.data.map(r=>({id:r["İD"],name:r.isim,email:r["e-posta"]||'',phone:r.telefon||'',country:r.ülke||'Türkiye',cat:r.kategori||'Diğer',e:r.emoji||'🏢',siparis:r["sipariş sayısı"]||0}));
-    if(r2.data)prods=r2.data.map(r=>({id:r["İD"],name:r.isim,sku:r["ürün kodu"]||'',kat:r.kategori||'Diğer',cost:r.maliyet_fiyat||0,sell:r["satış_fiyatı"]||0,stok:r.stoklamak||0,min:r["minimum stok"]||10,sid:r["tedarikçi kim"]||'',depo:r.depo||'Ana Depo',raf:r["raf_adı"]||'',e:r.emoji||'📦'}));
-    if(r3.data)movs=r3.data.map(r=>({id:r["İD"]||r.id,pid:r["ürün_kimliği"]||r.product_id,type:r.tip||r.type,qty:r.miktar||r.quantity,sid:r["tedarikçi_kim"]||r["tedarikçi kim"]||'',depo:r.depo||'',raf:r["raf_adı"]||'',date:(r.created_at||'').replace('T',' ').slice(0,16),note:r["Not"]||''}));
+    if(r1.data)supps=r1.data.map(r=>({id:r[id],name:r.name,email:r[email]||'',phone:r.phone||'',country:r.ülke||'Türkiye',cat:r.kategori||'Diğer',e:r.emoji||'🏢',siparis:r[orders_count]||0}));
+    if(r2.data)prods=r2.data.map(r=>({id:r[id],name:r.name,sku:r[sku]||'',kat:r.kategori||'Diğer',cost:r.maliyet_fiyat||0,sell:r[sell_price]||0,stok:r.stoklamak||0,min:r[min_stock]||10,sid:r["tedarikçi kim"]||'',depo:r.depo||'Ana Depo',raf:r[shelf_name]||'',e:r.emoji||'📦'}));
+    if(r3.data)movs=r3.data.map(r=>({id:r[id]||r.id,pid:r[product_id]||r.product_id,type:r.tip||r.type,qty:r.miktar||r.quantity,sid:r[supplier_id]||r["tedarikçi kim"]||'',depo:r.depo||'',raf:r[shelf_name]||'',date:(r.created_at||'').replace('T',' ').slice(0,16),note:r["Not"]||''}));
     if(r4.data)shelves=r4.data;
   }catch(e){showToast('❌','Bağlantı hatası!')}
   updGreet();updStats();rDash();rProds();rMovs();rSupps();rAlerts();fillSels();
@@ -933,7 +933,7 @@ function updProfUI(){
   const ini=name?name.split(" ").filter(Boolean).map(w=>w[0]).join("").toUpperCase().slice(0,2):"?";
   document.getElementById('pAv').textContent=ini;
   document.getElementById("pNm").textContent=name||"👤 İsim girilmedi";
-  document.getElementById('pRol').textContent=RL[PROF?.role]||'Staff';
+  document.getElementById('pRol').textContent=RL[PROF?.rolee]||'Staff';
   document.getElementById('pEm').textContent=U?.email||'';
   document.getElementById('pFSub').textContent=COMP?.name||'—';
   document.getElementById('pPSub').textContent=PROF?.phone?`📞 ${PROF.phone}`:'Telefon numaranızı ekleyin';
@@ -952,7 +952,7 @@ function fillSels(){
   if(!deps.length)deps.push('Ana Depo');
   const dO=deps.map(d=>`<option>${d}</option>`).join('');
   ['uDepo','hDepo'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML=dO});
-  const rO=`<option value="">— Raf seç —</option>`+shelves.map(s=>`<option value="${s.isim||s.name}">${s.depo||s.warehouse} › ${s.isim}${s["Tanım"]||s.description?' ('+((s["Tanım"]||s.description)||'')+')':''}</option>`).join('');
+  const rO=`<option value="">— Raf seç —</option>`+shelves.map(s=>`<option value="${s.name||s.name}">${s.depo||s.warehouse} › ${s.name}${s["Tanım"]||s.description?' ('+((s["Tanım"]||s.description)||'')+')':''}</option>`).join('');
   ['uRaf','hRaf'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML=rO});
 }
 
@@ -972,8 +972,8 @@ async function saveProd(){
   const raf=document.getElementById('uRaf').value||null;
   const sku=document.getElementById('uSku').value.trim()||'';
   showLd('Kaydediliyor...');
-  const {data,error}=await sb.from('products').insert({isim:name,"ürün kodu":sku,kategori:kat,"maliyet_fiyat":cost,"satış_fiyatı":sell,stoklamak:stok,"minimum stok":min,"tedarikçi kim":sid,depo:depo,"raf_adı":raf,emoji:CE[kat]||"📦","Kullanıcı kim":U.id,"user_id":U.id}).select();
-  if(!error&&data?.[0]&&stok>0)await sb.from('movements').insert({"ürün_kimliği":data[0]["İD"],tip:"In",miktar:stok,"tedarikçi_kim":sid,depo:depo,"raf_adı":raf,"Not":"Başlangıç stoğu","Kullanıcı kim":U.id,"user_id":U.id});
+  const {data,error}=await sb.from('products').insert({isim:name,sku:sku,kategori:kat,cost_price:cost,sell_price:sell,stoklamak:stok,min_stock:min,"tedarikçi kim":sid,depo:depo,shelf_name:raf,emoji:CE[kat]||"📦",user_id:U.id,"user_id":U.id}).select();
+  if(!error&&data?.[0]&&stok>0)await sb.from('movements').insert({product_id:data[0][id],tip:"In",miktar:stok,supplier_id:sid,depo:depo,shelf_name:raf,"Not":"Başlangıç stoğu",user_id:U.id,"user_id":U.id});
   closeMod('mUrun');
   ['uAd','uSku','uCost','uSell','uStok','uMin'].forEach(i=>{const e=document.getElementById(i);if(e)e.value=''});
   await renderAll();hideLd();showToast('✅',`"${name}" eklendi!`);
@@ -986,7 +986,7 @@ async function saveSupp(){
   const name=document.getElementById('fAd').value.trim();
   if(!name){showToast('⚠️','Firma adı boş!');return}
   showLd('Kaydediliyor...');
-  await sb.from('suppliers').insert({isim:name,"e-posta":document.getElementById("fEmail").value||null,telefon:document.getElementById("fTel").value||null,ülke:document.getElementById("fUlke").value,kategori:document.getElementById("fKat").value,emoji:SE[document.getElementById("fKat").value]||"🏢","sipariş sayısı":0,"Kullanıcı kim":U.id,"user_id":U.id});
+  await sb.from('suppliers').insert({isim:name,email:document.getElementById("fEmail").value||null,phone:document.getElementById("fTel").value||null,ülke:document.getElementById("fUlke").value,kategori:document.getElementById("fKat").value,emoji:SE[document.getElementById("fKat").value]||"🏢",orders_count:0,user_id:U.id,"user_id":U.id});
   closeMod('mFirma');['fAd','fEmail','fTel','fNot'].forEach(i=>{const e=document.getElementById(i);if(e)e.value=''});
   await renderAll();hideLd();showToast('✅',`"${name}" eklendi!`);gotoPage('firmalar');
 }
@@ -1005,8 +1005,8 @@ async function saveMov(){
   const ns=movTyp==='In'?p.stok+qty:p.stok-qty;
   const depo=document.getElementById('hDepo').value||'Ana Depo';
   const raf=document.getElementById('hRaf').value||null;
-  await sb.from('products').update({stoklamak:ns}).eq("İD",pid);
-  await sb.from('movements').insert({"ürün_kimliği":pid,tip:movTyp,miktar:qty,"tedarikçi_kim":document.getElementById("hFirma").value||null,depo:depo,"raf_adı":raf,"Not":document.getElementById("hNot").value||null,"Kullanıcı kim":U.id,"user_id":U.id});
+  await sb.from('products').update({stoklamak:ns}).eq(id,pid);
+  await sb.from('movements').insert({product_id:pid,tip:movTyp,miktar:qty,supplier_id:document.getElementById("hFirma").value||null,depo:depo,shelf_name:raf,"Not":document.getElementById("hNot").value||null,user_id:U.id,"user_id":U.id});
   closeMod('mHareket');
   document.getElementById('hMiktar').value='';document.getElementById('hNot').value='';
   await renderAll();hideLd();showToast(movTyp==='In'?'📥':'📤',`${p.name}: ${movTyp==='In'?'+':'-'}${qty} adet`);
@@ -1021,7 +1021,7 @@ async function saveProf(){
   const tel=document.getElementById('mpTel').value.trim();
   const fn=`${ad} ${soyad}`.trim()||PROF.full_name;
   showLd('Kaydediliyor...');
-  await sb.from('profiles').update({"Ad Soyad":fn,telefon:tel}).eq("İD",U.id);
+  await sb.from('profiles').update({full_name:fn,phone:tel}).eq(id,U.id);
   PROF.full_name=fn;PROF.phone=tel;
   closeMod('mProfil');updProfUI();hideLd();showToast('✅','Profil güncellendi!');
 }
@@ -1042,9 +1042,9 @@ async function saveIslet(){
   const name=document.getElementById('ibAd').value.trim();
   if(!name){showToast('⚠️','İşletme adı boş!');return}
   showLd('Kaydediliyor...');
-  const upd={isim:name,vergi_no:document.getElementById('ibVergi').value||null,sektör:document.getElementById("ibSek").value,adres:document.getElementById("ibAdres").value||null,telefon:document.getElementById("ibTel").value||null,"e-posta":document.getElementById("ibEmail").value||null,"web sitesi":document.getElementById("ibWeb").value||null};
-  if(COMP?.id)await sb.from('company').update(upd).eq("İD",COMP["İD"]);
-  else await sb.from('company').insert({"Kullanıcı kim":U.id,...upd});
+  const upd={isim:name,vergi_no:document.getElementById('ibVergi').value||null,sektör:document.getElementById("ibSek").value,adres:document.getElementById("ibAdres").value||null,phone:document.getElementById("ibTel").value||null,email:document.getElementById("ibEmail").value||null,"web sitesi":document.getElementById("ibWeb").value||null};
+  if(COMP?.id)await sb.from('company').update(upd).eq(id,COMP[id]);
+  else await sb.from('company').insert({user_id:U.id,...upd});
   COMP={...COMP,...upd};
   closeMod('mIsletme');updProfUI();hideLd();showToast('✅','İşletme bilgileri güncellendi!');
 }
@@ -1084,7 +1084,7 @@ async function saveRaf(){
   const ad=document.getElementById('rfAd').value.trim();
   if(!depo||!ad){showToast('⚠️','Depo ve raf adı gerekli!');return}
   showLd('Kaydediliyor...');
-  await sb.from('shelves').insert({"depo":depo,isim:ad,"Tanım":document.getElementById("rfAcik").value||null,"Kullanıcı kim":U.id,"user_id":U.id});
+  await sb.from('shelves').insert({"depo":depo,isim:ad,"Tanım":document.getElementById("rfAcik").value||null,user_id:U.id,"user_id":U.id});
   ['rfDepo','rfAd','rfAcik'].forEach(i=>{const e=document.getElementById(i);if(e)e.value=''});
   const {data}=await sb.from('shelves').select("*").order("depo",{ascending:true});
   if(data)shelves=data;
@@ -1093,7 +1093,7 @@ async function saveRaf(){
 
 async function delRaf(id){
   if(!isAdmin()){showToast('❌','Sadece admin silebilir!');return}
-  await sb.from('shelves').delete().eq("İD",id);
+  await sb.from('shelves').delete().eq(id,id);
   const {data}=await sb.from('shelves').select("*").order("depo",{ascending:true});
   if(data)shelves=data;
   rRafUI();showToast('🗑','Raf silindi');
@@ -1106,8 +1106,8 @@ async function delProd(id,name){
   if(!isAdmin()){showToast('❌','Sadece admin silebilir!');return}
   if(!confirm(`"${name}" silinsin mi?`))return;
   showLd('Siliniyor...');
-  await sb.from('movements').delete().eq("ürün_kimliği",id);
-  await sb.from('products').delete().eq("İD",id);
+  await sb.from('movements').delete().eq(product_id,id);
+  await sb.from('products').delete().eq(id,id);
   await renderAll();hideLd();showToast('🗑',`"${name}" silindi`);
 }
 
@@ -1115,7 +1115,7 @@ async function delSupp(id,name){
   if(!isAdmin()){showToast('❌','Sadece admin silebilir!');return}
   if(!confirm(`"${name}" silinsin mi?`))return;
   showLd('Siliniyor...');
-  await sb.from('suppliers').delete().eq("İD",id);
+  await sb.from('suppliers').delete().eq(id,id);
   await renderAll();hideLd();showToast('🗑',`"${name}" silindi`);
 }
 
@@ -1129,7 +1129,7 @@ async function fillKulUI(){
   // Aynı firma adına sahip tüm company kayıtlarını çek
   const {data:firmaUsers,error:fErr}=await sb.from('company').select("Kullanıcı kim,isim").ilike("isim",firmaAdi);
   if(fErr||!firmaUsers?.length){el.innerHTML=`<div style="color:var(--mt);font-size:.82rem;text-align:center;padding:16px">Kullanıcı listesi alınamadı.<br><small style="color:var(--rd)">RLS politikasını Supabase'de güncellemeniz gerekiyor.</small></div>`;return}
-  const userIds=firmaUsers.map(x=>x["Kullanıcı kim"]);
+  const userIds=firmaUsers.map(x=>x[user_id]);
   // profiles tablosundan bu kullanıcıları çek
   const {data,error:pErr}=await sb.from('profiles').select("İD,\"Ad Soyad\",telefon,rol,dondurulmuş").in('id',userIds).order('created_at');
   if(pErr||!data?.length){
@@ -1144,35 +1144,35 @@ async function fillKulUI(){
     <span>🏢 ${firmaAdi}</span>
     <span>${data.length} kullanıcı</span>
   </div>`+data.map(u=>{
-    const isMe=u["İD"]===U.id;
-    const isAdm=u.rol==="admin";
-    const frozen=u["dondurulmuş"]===true;
+    const isMe=u[id]===U.id;
+    const isAdm=u.rolee==="admin";
+    const frozen=u[frozen]===true;
     const avBg=frozen?'background:#374151':'background:var(--grad)';
     return`<div style="background:var(--s2);border:1px solid ${frozen?'rgba(239,68,68,.3)':'var(--bd)'};border-radius:12px;padding:14px;margin-bottom:10px;opacity:${frozen?'.65':'1'}">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:${!isMe&&!isAdm?'12px':'0'}">
         <div style="width:42px;height:42px;border-radius:11px;${avBg};display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:.9rem;flex-shrink:0">
-          ${frozen?'🔒':(u["Ad Soyad"]||"?")[0].toUpperCase()}
+          ${frozen?'🔒':(u[full_name]||"?")[0].toUpperCase()}
         </div>
         <div style="flex:1;min-width:0">
           <div style="font-size:.87rem;font-weight:700;display:flex;align-items:center;gap:5px;flex-wrap:wrap">
-            ${u["Ad Soyad"]||"İsimsiz"}
+            ${u[full_name]||"İsimsiz"}
             ${isAdm?'<span style="background:rgba(99,102,241,.2);color:var(--p2);font-size:.6rem;font-weight:800;padding:2px 7px;border-radius:5px">👑 ADMİN</span>':''}
             ${frozen?'<span style="background:rgba(239,68,68,.15);color:#f87171;font-size:.6rem;font-weight:800;padding:2px 7px;border-radius:5px">❄️ DONDURULDU</span>':''}
             ${isMe?'<span style="background:rgba(16,185,129,.15);color:#34d399;font-size:.6rem;font-weight:800;padding:2px 7px;border-radius:5px">SEN</span>':''}
           </div>
           <div style="font-size:.7rem;color:var(--mt);margin-top:3px">${u.phone||'Telefon girilmedi'}</div>
         </div>
-        ${!isMe&&!isAdm?`<select style="background:var(--s3);border:1px solid var(--bd);border-radius:8px;padding:6px 7px;color:var(--tx);font-family:'Outfit',sans-serif;font-size:.73rem;font-weight:700;cursor:pointer" onchange="updRole('${u["İD"]||u.id}',this.value)" ${frozen?'disabled':''}>
-          <option value="manager" ${u.rol==="manager"?'selected':''}>🔧 Manager</option>
-          <option value="staff" ${u.rol==="staff"?'selected':''}>👷 Staff</option>
-          <option value="viewer" ${u.rol==="viewer"?'selected':''}>👁 Viewer</option>
+        ${!isMe&&!isAdm?`<select style="background:var(--s3);border:1px solid var(--bd);border-radius:8px;padding:6px 7px;color:var(--tx);font-family:'Outfit',sans-serif;font-size:.73rem;font-weight:700;cursor:pointer" onchange="updRole('${u[id]||u.id}',this.value)" ${frozen?'disabled':''}>
+          <option value="manager" ${u.rolee==="manager"?'selected':''}>🔧 Manager</option>
+          <option value="staff" ${u.rolee==="staff"?'selected':''}>👷 Staff</option>
+          <option value="viewer" ${u.rolee==="viewer"?'selected':''}>👁 Viewer</option>
         </select>`:''}
       </div>
       ${!isMe&&!isAdm?`<div style="display:flex;gap:8px;margin-top:10px">
-        <button onclick="toggleFreeze('${u["İD"]||u.id}',${frozen})" style="flex:1;padding:9px;border-radius:9px;border:1px solid ${frozen?'rgba(16,185,129,.3)':'rgba(245,158,11,.3)'};background:${frozen?'rgba(16,185,129,.1)':'rgba(245,158,11,.1)'};color:${frozen?'#34d399':'#fbbf24'};font-family:'Outfit',sans-serif;font-weight:700;font-size:.78rem;cursor:pointer">
+        <button onclick="toggleFreeze('${u[id]||u.id}',${frozen})" style="flex:1;padding:9px;border-radius:9px;border:1px solid ${frozen?'rgba(16,185,129,.3)':'rgba(245,158,11,.3)'};background:${frozen?'rgba(16,185,129,.1)':'rgba(245,158,11,.1)'};color:${frozen?'#34d399':'#fbbf24'};font-family:'Outfit',sans-serif;font-weight:700;font-size:.78rem;cursor:pointer">
           ${frozen?'🔓 Aktif Et':'🔒 Dondur'}
         </button>
-        <button onclick="delUser('${u["İD"]||u.id}','${(u["Ad Soyad"]||"Kullanıcı").replace(/'/g,"\'")}')" style="flex:1;padding:9px;border-radius:9px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.1);color:#f87171;font-family:'Outfit',sans-serif;font-weight:700;font-size:.78rem;cursor:pointer">
+        <button onclick="delUser('${u[id]||u.id}','${(u[full_name]||"Kullanıcı").replace(/'/g,"\'")}')" style="flex:1;padding:9px;border-radius:9px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.1);color:#f87171;font-family:'Outfit',sans-serif;font-weight:700;font-size:.78rem;cursor:pointer">
           🗑 Sil
         </button>
       </div>`:isAdm&&!isMe?`<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bd);font-size:.7rem;color:var(--mt);text-align:center">Firmada tek admin · Silinemez veya dondurulamaz</div>`:''}
@@ -1181,14 +1181,14 @@ async function fillKulUI(){
 }
 
 async function updRole(uid,role){
-  await sb.from('profiles').update({rol}).eq("İD",uid);
+  await sb.from('profiles').update({rol}).eq(id,uid);
   showToast('✅','Rol güncellendi!');
   fillKulUI();
 }
 
 async function toggleFreeze(uid,isFrozen){
   const yeni=!isFrozen;
-  await sb.from('profiles').update({"dondurulmuş":yeni}).eq("İD",uid);
+  await sb.from('profiles').update({frozen:yeni}).eq(id,uid);
   showToast(yeni?'🔒':'🔓',yeni?'Kullanıcı donduruldu!':'Kullanıcı aktif edildi!');
   fillKulUI();
 }
@@ -1196,8 +1196,8 @@ async function toggleFreeze(uid,isFrozen){
 async function delUser(uid,name){
   if(!confirm(`"${name}" silinsin mi?\nBu işlem geri alınamaz!`))return;
   showLd('Siliniyor...');
-  const {error:e1}=await sb.from('profiles').delete().eq("İD",uid);
-  const {error:e2}=await sb.from('company').delete().eq("Kullanıcı kim",uid);
+  const {error:e1}=await sb.from('profiles').delete().eq(id,uid);
+  const {error:e2}=await sb.from('company').delete().eq(user_id,uid);
   hideLd();
   if(e1||e2){
     showToast('❌','Silme başarısız! RLS politikası engelledi.');
