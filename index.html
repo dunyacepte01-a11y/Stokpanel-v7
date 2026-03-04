@@ -665,7 +665,8 @@ async function startApp(){
   showLd('Hesap yükleniyor...');
   // Profil
   const {data:prof}=await sb.from('profiles').select('*').eq('id',U.id).single();
-  PROF=prof||{id:U.id,full_name:U.user_metadata?.full_name||U.email.split('@')[0],role:'admin',phone:''};
+  PROF=prof||{id:U.id,full_name:'',role:'admin',phone:''};
+  if(prof&&prof.full_name&&prof.full_name.includes('@'))PROF.full_name='';
   if(!prof)await sb.from('profiles').upsert(PROF);
   // Firma
   const {data:comp}=await sb.from('company').select('*').eq('user_id',U.id).single();
@@ -727,8 +728,8 @@ function updGreet(){
   const h=new Date().getHours();
   let g,em;
   if(h>=5&&h<12){g='Günaydın';em='☀️'}
-  else if(h>=12&&h<17){g='İyi öğleden sonralar';em='🌤️'}
-  else if(h>=17&&h<21){g='İyi akşamlar';em='🌆'}
+  else if(h>=12&&h<18){g='İyi günler';em='🌤️'}
+  else if(h>=18&&h<21){g='İyi akşamlar';em='🌆'}
   else{g='İyi geceler';em='🌙'}
   document.getElementById('greet').textContent=`${g} ${em}`;
   document.getElementById('dashSub').textContent=PROF?.full_name?`${PROF.full_name} · ${COMP?.name||''}`:'';
@@ -880,10 +881,10 @@ function rAlerts(){
 // PROFILE UI
 // ══════════════════════════════════════════════════════
 function updProfUI(){
-  const name=PROF?.full_name||U?.email||'—';
-  const ini=name.split(' ').filter(Boolean).map(w=>w[0]).join('').toUpperCase().slice(0,2)||'👤';
+  const name=PROF?.full_name||"";
+  const ini=name?name.split(" ").filter(Boolean).map(w=>w[0]).join("").toUpperCase().slice(0,2):"?";
   document.getElementById('pAv').textContent=ini;
-  document.getElementById('pNm').textContent=name;
+  document.getElementById("pNm").textContent=name||"👤 İsim girilmedi";
   document.getElementById('pRol').textContent=RL[PROF?.role]||'Staff';
   document.getElementById('pEm').textContent=U?.email||'';
   document.getElementById('pFSub').textContent=COMP?.name||'—';
